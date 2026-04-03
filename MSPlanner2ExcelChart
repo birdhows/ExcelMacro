@@ -5,7 +5,7 @@ Option Explicit
 '2. Weekends excluded from the Pivot Report
 
 '*==============How to Install this code Copy/Paste=============*
-'1. In Workbook, create a new sheet and rename it "s_Main"
+'1. In XLSM Workbook, create a new sheet and rename it "s_Main"
 '2. In Cell A1, write the text "MESSAGE"
 '3. In Cell A2, write the Text "FILE LOCATION"
 '4. In VBA, create a new MODULE and copy/paste me
@@ -13,9 +13,10 @@ Option Explicit
 '   assign Macro to "s_Main"
 
 '*==============How to Use======================================*
-'1. In Sheet "s_Main", Enter the file location path of excel file
-'   including the file extension exported from the Planner Web
-'2. Click the Form Button to EXECUTE
+'1. Open you Microsoft Plan then Export Plan to Excel
+'2. In Sheet "s_Main", Enter the file location path of excel file
+'   including the file extension
+'3. Click the BUTTON (Form Button previously created) to EXECUTE
 
 '*==============Expected Output=================================*
 '1. A new file will be created in Same folder where the input file
