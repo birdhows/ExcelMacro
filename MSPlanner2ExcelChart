@@ -2,6 +2,7 @@ Option Explicit
 
 'Assumption:
 '1. All dates from Planner extract file are MM/DD/YYYY format
+'2. Weekends excluded from the Pivot Report
 
 '*==============How to Install this code Copy/Paste=============*
 '1. In Workbook, create a new sheet and rename it "s_Main"
@@ -55,6 +56,15 @@ Sub s_Main()
   
   'Clear Output
   oWSMacro.Range("B1").Value2 = ""
+  
+  'Close workbook from previous run not totally process
+  For Each oWBMain In Application.Workbooks
+    If UCase(Left(oWBMain.FullName, 4)) = "BOOK" Or _
+      InStr(UCase(oWBMain.FullName), UCase(gcExportFileName)) > 0 Then
+      oWBMain.Close
+    End If
+  Next oWBMain
+  Set oWBMain = Nothing
   
   'Get Data
   strFilePath = oWSMacro.Range("B2").Value2
@@ -136,8 +146,10 @@ Function f_createPivot(colData As Collection, oWB As Workbook)
   Dim strTabName As String
   Dim strSourceData As String
   Dim strDestination As String
+  Dim iUpto As Integer
   
-  Const cPivotColStart As Integer = 1
+  Const cPivotColStart As Integer = 8
+  Const cPivotTblStyle As String = "PivotStyleMedium5"
   
   On Error GoTo MyError:
   
@@ -147,6 +159,10 @@ Function f_createPivot(colData As Collection, oWB As Workbook)
   'Create New Sheet for Pivot Data
   Set oWSPivot = oWB.Sheets.Add(After:=oWB.Sheets(oWB.Sheets.Count))
   oWSPivot.Name = gcSheet3
+  
+  'Set column width of columns before start of pivot
+  iUpto = cPivotColStart - 1
+  ActiveSheet.Columns(1).Resize(, iUpto).ColumnWidth = 3
   
   'Get Max Row of Data Table
   lMaxRow = oWSSource.Cells.Find("*", searchorder:=xlByRows, searchdirection:=xlPrevious).Row
@@ -165,14 +181,14 @@ Function f_createPivot(colData As Collection, oWB As Workbook)
   'Start Preparing the Pivot
   Set objPivotTable = oWSPivot.PivotTables(strTabName)
    
-  oWB.ShowPivotTableFieldList = False     'Hide PivotTable Fields
+  'oWB.ShowPivotTableFieldList = False     'Hide PivotTable Fields
   
   '==========Design=========================
   objPivotTable.RowGrand = False
   objPivotTable.ColumnGrand = False
   objPivotTable.ShowTableStyleRowStripes = True     ' Banded Rows
   objPivotTable.ShowTableStyleColumnStripes = True  ' Banded Columns
-  objPivotTable.TableStyle2 = "PivotStyleMedium2"
+  objPivotTable.TableStyle2 = cPivotTblStyle
   
   'Report Table Layout
   objPivotTable.RowAxisLayout xlTabularRow
@@ -191,18 +207,26 @@ Function f_createPivot(colData As Collection, oWB As Workbook)
   objPivotTable.MergeLabels = True
   
   '==========Adding Columns=================
+  Call f_addPivotField(objPivotTable, xlColumnField, "WEEK_NUM")
   Call f_addPivotField(objPivotTable, xlColumnField, "MONTH")
   Call f_addPivotField(objPivotTable, xlColumnField, "DAYS_NUM")
   Call f_addPivotField(objPivotTable, xlColumnField, "DAYS_WEEK")
   
-  '==========Adding Rows=================
-  Call f_addPivotField(objPivotTable, xlRowField, "CHECKLIST ITEMS")
+  'Add Border to column headers
+  Call f_addColHeadBorder(objPivotTable)
+  
+  '==========Adding Rows===================
+  Call f_addPivotField(objPivotTable, xlRowField, "PARENT")
+  Call f_addPivotField(objPivotTable, xlRowField, "ASSIGNED TO")
   Call f_addPivotField(objPivotTable, xlRowField, "BUCKET NAME")
   Call f_addPivotField(objPivotTable, xlRowField, "TASK NAME")
   
   '==========Adding Values=================
   objPivotTable.AddDataField objPivotTable.PivotFields("PROGRESS"), _
       gcValueDesc1
+      
+  '==========Adding Slicer=================
+  Call f_addFilterSlicer(oWB)
       
   'AutoFit Pivot
   objPivotTable.TableRange2.Columns.AutoFit
@@ -218,6 +242,57 @@ MyError:
   
   End Function
   
+Function f_addFilterSlicer(oWB As Workbook)
+
+  Dim objPivot As PivotTable
+  Dim arrfields As Variant
+  Dim oWS As Worksheet
+  
+  Dim i As Long
+  Dim sc As SlicerCache
+  Dim sl As Slicer
+  
+  Dim iPosVertical As Double
+  Dim iPosHorizontal As Double
+  Dim iSlicerWidth As Double
+  Dim iSlicerHeight As Double
+  
+  'Set initial position
+  iPosVertical = 0
+  iPosHorizontal = 0
+  iSlicerWidth = 140
+  iSlicerHeight = 120
+
+  'Get Pivot Table from WOrkbook
+  Set oWS = oWB.Sheets(gcSheet3)
+  Set objPivot = oWS.PivotTables(1)
+  
+  'Fields to create slicers for
+  arrfields = Array("PARENT", "BUCKET NAME", "ASSIGNED TO")
+  
+  For i = LBound(arrfields) To UBound(arrfields)
+
+    ' Create slicer cache (reuses cache if already exists)
+    Set sc = oWB.SlicerCaches.Add2(objPivot, arrfields(i))
+
+    ' Add slicer
+    Set sl = sc.Slicers.Add( _
+      oWS, , _
+      "Slicer_" & arrfields(i), _
+      arrfields(i), _
+      iPosVertical, iPosHorizontal, iSlicerWidth, iSlicerHeight)
+
+    ' Optional formatting
+    sl.Style = "SlicerStyleLight2"
+    sl.NumberOfColumns = 1
+
+    ' Move next slicer to the right
+    iPosVertical = iPosVertical + iSlicerHeight + 1
+
+  Next i
+
+End Function
+  
 Function f_addPivotField(objPivot As PivotTable, vOrient As Variant, strName As String)
 
   With objPivot.PivotFields(strName)
@@ -226,6 +301,27 @@ Function f_addPivotField(objPivot As PivotTable, vOrient As Variant, strName As 
       False, False)
   End With
   
+End Function
+
+Function f_addColHeadBorder(ByRef objPT As PivotTable)
+
+  Dim hdrRng As Range
+  Dim rngToFormat As Range
+  
+  Set hdrRng = objPT.ColumnRange
+
+  ' Guard: only if more than 1 header row
+  If hdrRng.Rows.Count > 1 Then
+  
+    Set rngToFormat = hdrRng.Offset(1).Resize(hdrRng.Rows.Count)
+
+    With rngToFormat.Borders
+      .LineStyle = xlContinuous
+      .Weight = xlMedium
+      .Color = RGB(0, 0, 0)
+    End With
+  End If
+
 End Function
   
 Function f_conditionFormatCell(oWSPivot As Worksheet)
@@ -249,13 +345,12 @@ Function f_conditionFormatCell(oWSPivot As Worksheet)
   'Set Condition Formatting
   Set objCondFormat = objPivotField.DataRange.FormatConditions.Add( _
               Type:=xlCellValue, _
-              Operator:=xlEqual, _
+              Operator:=xlGreaterEqual, _
               Formula1:="=1")
               
-  'Fill cell with RED
+  'Fill cell with RED and Font to RED (so it will be hidden)
   objCondFormat.Interior.Color = RGB(255, 0, 0)
-  objCondFormat.Font.Color = RGB(255, 255, 255)
-
+  objCondFormat.Font.Color = RGB(255, 0, 0)
 
 End Function
 
@@ -264,7 +359,7 @@ Function f_createSheet( _
   colData As Collection, _
   ByRef oWB As Workbook)
   
-  Dim oWs As Worksheet
+  Dim oWS As Worksheet
   Dim objRec As Object
   Dim vKey As Variant
   Dim strVal As String
@@ -276,17 +371,17 @@ Function f_createSheet( _
   'Create new worksheet
   'If sheet1 exists, use that one just rename it
   If UCase(oWB.Sheets(1).Name) = "SHEET1" Then
-    Set oWs = oWB.Sheets(1)
+    Set oWS = oWB.Sheets(1)
   Else
-    Set oWs = oWB.Sheets.Add(After:=oWB.Sheets(oWB.Sheets.Count))
+    Set oWS = oWB.Sheets.Add(After:=oWB.Sheets(oWB.Sheets.Count))
   End If
-  oWs.Name = strSheetName
+  oWS.Name = strSheetName
   
   'Fill Up Header
   iCol = 1
   For Each vKey In colData(1)
     strVal = vKey
-    oWs.Cells(1, iCol).Value2 = strVal
+    oWS.Cells(1, iCol).Value2 = strVal
     iCol = iCol + 1
   Next vKey
   
@@ -298,7 +393,7 @@ Function f_createSheet( _
     iCol = 1
     For Each vKey In objRec
       strVal = objRec(vKey)
-      oWs.Cells(iRow, iCol).Value2 = "'" & strVal
+      oWS.Cells(iRow, iCol).Value2 = "'" & strVal
       iCol = iCol + 1
     Next vKey
       
@@ -327,8 +422,12 @@ Function f_getOutput(objRec As Object) As Collection
   Dim strVal As String
   Dim strStart As String
   Dim strEnd As String
+  Dim arrTemp() As String
+  Dim strTaskID As String
   
   Dim colOutput As New Collection
+  
+  strTaskID = objRec("TASK NAME")
   
   'Calculate Number of Days between Start and End Date
   strStart = objRec("START DATE")
@@ -365,6 +464,15 @@ Function f_getOutput(objRec As Object) As Collection
     
     'Start Inserting new columns here
     
+    'Parent
+    strVal = objRec("CHECKLIST ITEMS")
+    If strVal = "" Then
+      objOut.Add "PARENT", ""
+    Else
+      arrTemp = Split(strVal, ";")
+      objOut.Add "PARENT", arrTemp(0)
+    End If
+    
     'Daily
     dtDaily = DateAdd("d", i, dtStart)
     strVal = Format(dtDaily, "YYYY-MM-DD")
@@ -389,11 +497,15 @@ Function f_getOutput(objRec As Object) As Collection
     strVal = UCase(Format(dtDaily, "MMM-YY"))
     objOut.Add "MONTH", strVal
     
+    'Week Number
+    strVal = DatePart("ww", dtDaily, vbMonday, vbFirstFourDays)
+    strVal = Format(strVal, "00") 'Add Leading zeros
+    strVal = "WK" & strVal
+    objOut.Add "WEEK_NUM", strVal
+    
     If objOut("DAYS_WEEK") = "S" Or _
        objOut("DAYS_WEEK") = "SU" Then
-       
-      'Exclude Saturday and Sunday
-      
+     'Exclude Saturday and Sunday
     Else
       colOutput.Add objOut
     End If
@@ -405,7 +517,7 @@ Function f_getOutput(objRec As Object) As Collection
   Exit Function
   
 MyError:
-  gstr_ErrorMessage = Err.Description
+  gstr_ErrorMessage = strTaskID & "|" & Err.Description
 
 End Function
 
@@ -506,10 +618,22 @@ End Function
 
 Function f_ConvStr2Date(ByVal dateText As String) As Date
 
-    f_ConvStr2Date = DateSerial( _
-        CLng(Right(dateText, 4)), _
-        CLng(Left(dateText, 2)), _
-        CLng(Mid(dateText, 4, 2)) _
-    )
+  Dim strDay As String
+  Dim strMonth As String
+  Dim strYear As String
+  
+  Dim arrTemp() As String
+  
+  arrTemp = Split(dateText, "/")
+   
+  strDay = Format(arrTemp(1), "00")
+  strMonth = Format(arrTemp(0), "00")
+  strYear = Format(arrTemp(2), "0000")
+
+  f_ConvStr2Date = DateSerial( _
+      CLng(strYear), _
+      CLng(strMonth), _
+      CLng(strDay) _
+  )
     
 End Function
